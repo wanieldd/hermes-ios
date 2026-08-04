@@ -5,7 +5,6 @@ import 'core/api/models.dart';
 import 'core/app_state.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/connection/connection_screen.dart';
-import 'features/connection/login_screen.dart';
 import 'features/sessions/sessions_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/skills/skills_screen.dart';
@@ -43,17 +42,9 @@ class _AppShellState extends State<_AppShell> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
 
-    // Not connected at all - no credentials saved
-    if (state.connectionState == GatewayConnectionState.idle &&
-        state.gatewayUrl == null) {
+    // Not connected -- always show the connection screen
+    if (state.connectionState != GatewayConnectionState.open) {
       return const ConnectionScreen();
-    }
-
-    // Has URL but needs auth - show login
-    if (state.connectionState == GatewayConnectionState.idle ||
-        state.connectionState == GatewayConnectionState.closed ||
-        state.connectionState == GatewayConnectionState.error) {
-      return const LoginScreen();
     }
 
     // Connected - show main app

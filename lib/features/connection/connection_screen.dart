@@ -14,8 +14,6 @@ class ConnectionScreen extends StatefulWidget {
 
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _urlController = TextEditingController();
-  final _tokenController = TextEditingController();
-  bool _showTokenField = false;
   bool _isLoading = false;
 
   @override
@@ -25,16 +23,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (state.gatewayUrl != null) {
       _urlController.text = state.gatewayUrl!;
     }
-    if (state.gatewayToken != null && state.gatewayToken!.isNotEmpty) {
-      _tokenController.text = state.gatewayToken!;
-      _showTokenField = true;
+    // Auto-connect if we have saved credentials
+    if (state.gatewayUrl != null && state.gatewayUrl!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
     }
   }
 
   @override
   void dispose() {
     _urlController.dispose();
-    _tokenController.dispose();
     super.dispose();
   }
 
@@ -45,50 +42,21 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     setState(() => _isLoading = true);
 
     final state = context.read<AppState>();
-    final success = await state.connect(
-      url,
-      token: _tokenController.text.trim().isEmpty
-          ? null
-          : _tokenController.text.trim(),
-    );
+    await state.connect(url);
 
     if (mounted) {
       setState(() => _isLoading = false);
-      if (!success && state.connectionError != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(state.connectionError!),
-            backgroundColor: HermesTheme.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _autoConnect() async {
-    final state = context.read<AppState>();
-    if (state.gatewayUrl != null && state.gatewayUrl!.isNotEmpty) {
-      setState(() => _isLoading = true);
-      await state.connect(
-        state.gatewayUrl!,
-        token: state.gatewayToken,
-      );
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final isConnected = state.connectionState == GatewayConnectionState.open;
 
-    // Auto-connect if credentials saved and not already connected
-    if (state.gatewayUrl != null &&
-        state.gatewayUrl!.isNotEmpty &&
-        state.connectionState == GatewayConnectionState.idle &&
-        !_isLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _autoConnect());
+    // If connected, return empty -- the parent shell will switch to main app
+    if (isConnected) {
+      return const SizedBox.shrink();
     }
 
     return Scaffold(
@@ -101,23 +69,23 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               children: [
                 // App icon
                 Container(
-                  width: 80,
-                  height: 80,
+                  width: 72,
+                  height: 72,
                   decoration: BoxDecoration(
                     gradient: HermesTheme.primaryGradient,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                   child: const Icon(
                     Icons.bolt_rounded,
                     color: Colors.white,
-                    size: 44,
+                    size: 40,
                   ),
                 ),
                 const SizedBox(height: 16),
                 const Text(
                   'Hermes',
                   style: TextStyle(
-                    fontSize: 32,
+                    fontSize: 28,
                     fontWeight: FontWeight.bold,
                     color: HermesTheme.textPrimary,
                   ),
@@ -130,7 +98,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     color: HermesTheme.textSecondary,
                   ),
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 40),
 
                 // Gateway URL field
                 TextField(
@@ -138,52 +106,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   style: const TextStyle(color: HermesTheme.textPrimary),
                   decoration: const InputDecoration(
                     labelText: 'Gateway URL',
-                    hintText: 'http://192.168.1.100:8080',
+                    hintText: 'http://192.168.1.100:9120',
                     prefixIcon: Icon(Icons.link_rounded, color: HermesTheme.textMuted),
                   ),
                   keyboardType: TextInputType.url,
                   autocorrect: false,
                   enabled: !_isLoading,
                 ),
-                const SizedBox(height: 12),
-
-                // Token toggle
-                GestureDetector(
-                  onTap: () => setState(() => _showTokenField = !_showTokenField),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _showTokenField
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        color: HermesTheme.textMuted,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _showTokenField ? 'Hide token' : 'Add auth token',
-                        style: const TextStyle(
-                          color: HermesTheme.textMuted,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_showTokenField) ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _tokenController,
-                    style: const TextStyle(color: HermesTheme.textPrimary),
-                    decoration: const InputDecoration(
-                      labelText: 'Auth Token',
-                      hintText: 'Optional session token',
-                      prefixIcon: Icon(Icons.key_rounded, color: HermesTheme.textMuted),
-                    ),
-                    obscureText: true,
-                    enabled: !_isLoading,
-                  ),
-                ],
                 const SizedBox(height: 24),
 
                 // Connect button
