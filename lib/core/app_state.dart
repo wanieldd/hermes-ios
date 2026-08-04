@@ -221,14 +221,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Create a new session
+  /// Create a new session via WebSocket
   Future<String?> createSession({String? title}) async {
     try {
       final result = await _gatewayClient!.createSession(title: title);
       final sessionId = result['session_id'] as String?;
       if (sessionId != null) {
+        // Add to local session list
+        _sessions.insert(0, SessionInfo(
+          id: sessionId,
+          title: title ?? 'New Chat',
+          messageCount: 0,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ));
         await selectSession(sessionId);
-        await loadSessions();
+        notifyListeners();
       }
       return sessionId;
     } catch (e) {
@@ -318,8 +326,22 @@ class AppState extends ChangeNotifier {
         break;
 
       case GatewayEventType.sessionInfo:
-        // Session info changed, reload
-        loadSessions();
+        // Session info from WebSocket - update local list
+        final sid = event.sessionId ?? event.payload?['session_id'] as String?;
+        if (sid != null) {
+          final existing = _sessions.indexWhere((s) => s.id == sid);
+          final title = event.payload?['title'] as String?;
+          if (existing >= 0 && title != null) {
+            _sessions[existing] = SessionInfo(
+              id: sid,
+              title: title,
+              messageCount: _sessions[existing].messageCount,
+              createdAt: _sessions[existing].createdAt,
+              updatedAt: DateTime.now(),
+            );
+          }
+          notifyListeners();
+        }
         break;
 
       case GatewayEventType.statusUpdate:
