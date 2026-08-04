@@ -6,9 +6,6 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../api/models.dart';
 
 /// JSON-RPC WebSocket client for the Hermes gateway.
-///
-/// Connects to the backend at ws(s)://host/api/ws?token=xxx
-/// and sends/receives JSON-RPC frames for chat streaming.
 class GatewayClient {
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
@@ -24,17 +21,11 @@ class GatewayClient {
   String? _lastUrl;
   String? _lastToken;
   bool _intentionalClose = false;
+  int _reconnectAttempts = 0;
 
-  /// Stream of parsed gateway events (message deltas, tool calls, etc.)
   Stream<GatewayEvent> get events => _eventController.stream;
-
-  /// Stream of connection state changes
   Stream<GatewayConnectionState> get stateStream => _stateController.stream;
-
-  /// Current connection state
   GatewayConnectionState get state => _state;
-
-  /// Whether the WebSocket is open
   bool get isConnected => _state == GatewayConnectionState.open;
 
   void _setState(GatewayConnectionState newState) {
@@ -42,13 +33,11 @@ class GatewayClient {
     _stateController.add(newState);
   }
 
-  /// Connect to the gateway.
-  /// [url] is the base HTTP URL (e.g., http://192.168.1.100:8080)
-  /// [token] is the auth token
   Future<void> connect(String url, {String? token}) async {
     _intentionalClose = false;
     _lastUrl = url;
     _lastToken = token;
+    _reconnectAttempts = 0;
 
     final wsScheme = url.startsWith('https') ? 'wss' : 'ws';
     final cleanUrl = url.replaceAll(RegExp(r'/+$'), '');
@@ -59,6 +48,11 @@ class GatewayClient {
     _setState(GatewayConnectionState.connecting);
 
     try {
+      // Dispose old connection if any
+      await _subscription?.cancel();
+      await _channel?.sink.close();
+      _channel = null;
+
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
       _subscription = _channel!.stream.listen(
@@ -66,6 +60,7 @@ class GatewayClient {
         onError: (error) {
           _setState(GatewayConnectionState.error);
           _rejectAllPending(Exception('WebSocket error: $error'));
+          _scheduleReconnect();
         },
         onDone: () {
           if (!_intentionalClose) {
@@ -85,11 +80,11 @@ class GatewayClient {
     }
   }
 
-  /// Disconnect intentionally.
   Future<void> disconnect() async {
     _intentionalClose = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _reconnectAttempts = 0;
     await _subscription?.cancel();
     _subscription = null;
     await _channel?.sink.close();
@@ -98,7 +93,20 @@ class GatewayClient {
     _rejectAllPending(Exception('Disconnected'));
   }
 
-  /// Send a JSON-RPC request and wait for the response.
+  void _scheduleReconnect() {
+    if (_intentionalClose) return;
+    _reconnectTimer?.cancel();
+    _reconnectAttempts++;
+    final delay = (_reconnectAttempts < 5)
+        ? const Duration(seconds: 2)
+        : const Duration(seconds: 5);
+    _reconnectTimer = Timer(delay, () {
+      if (_lastUrl != null) {
+        connect(_lastUrl!, token: _lastToken).catchError((_) {});
+      }
+    });
+  }
+
   Future<Map<String, dynamic>> request(
     String method, {
     Map<String, dynamic>? params,
@@ -121,7 +129,6 @@ class GatewayClient {
 
     _channel!.sink.add(jsonEncode(frame));
 
-    // Timeout
     Timer(timeout, () {
       if (!completer.isCompleted) {
         _pending.remove(id);
@@ -132,7 +139,6 @@ class GatewayClient {
     return completer.future;
   }
 
-  /// Send a prompt to the current session.
   Future<void> submitPrompt(String sessionId, String text) async {
     await request('prompt.submit', params: {
       'session_id': sessionId,
@@ -140,24 +146,16 @@ class GatewayClient {
     });
   }
 
-  /// Create a new session.
   Future<Map<String, dynamic>> createSession({String? title}) async {
     return await request('session.create', params: {
       if (title != null) 'title': title,
     });
   }
 
-  /// Delete a session.
-  Future<void> deleteSession(String id) async {
-    await request('session.delete', params: {'session_id': id});
-  }
-
   void _handleMessage(dynamic data) {
     try {
       final decoded = jsonDecode(data as String);
-
       if (decoded is Map<String, dynamic>) {
-        // Check if it's a JSON-RPC response (has 'id')
         if (decoded.containsKey('id') && decoded['id'] != null) {
           final id = decoded['id'].toString();
           final completer = _pending.remove(id);
@@ -173,16 +171,12 @@ class GatewayClient {
             }
           }
         }
-
-        // Check if it's a gateway event (has 'type')
         if (decoded.containsKey('type') && decoded.containsKey('params')) {
           final event = GatewayEvent.fromJson(decoded);
           _eventController.add(event);
         }
       }
-    } catch (e) {
-      // Ignore malformed messages
-    }
+    } catch (_) {}
   }
 
   void _rejectAllPending(Exception error) {
@@ -194,17 +188,6 @@ class GatewayClient {
     _pending.clear();
   }
 
-  void _scheduleReconnect() {
-    if (_intentionalClose) return;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
-      if (_lastUrl != null) {
-        connect(_lastUrl!, token: _lastToken).catchError((_) {});
-      }
-    });
-  }
-
-  /// Dispose of resources.
   void dispose() {
     _intentionalClose = true;
     _reconnectTimer?.cancel();

@@ -33,6 +33,7 @@ class _AppShell extends StatefulWidget {
 
 class _AppShellState extends State<_AppShell> {
   int _currentTab = 0;
+  bool _wasEverConnected = false;
 
   void _switchToChat() {
     setState(() => _currentTab = 0);
@@ -41,13 +42,19 @@ class _AppShellState extends State<_AppShell> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final isOpen = state.connectionState == GatewayConnectionState.open;
 
-    // Not connected -- always show the connection screen
-    if (state.connectionState != GatewayConnectionState.open) {
+    // Track if we've ever been connected
+    if (isOpen && !_wasEverConnected) {
+      _wasEverConnected = true;
+    }
+
+    // Never connected before - show connection screen
+    if (!_wasEverConnected) {
       return const ConnectionScreen();
     }
 
-    // Connected - show main app
+    // Was connected before - show the main app with a banner when disconnected
     final screens = [
       const ChatScreen(),
       SessionsScreen(onSessionSelected: _switchToChat),
@@ -64,9 +71,60 @@ class _AppShellState extends State<_AppShell> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentTab,
-        children: screens,
+      body: Column(
+        children: [
+          // Reconnecting banner
+          if (!isOpen)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: HermesTheme.warning.withValues(alpha: 0.15),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: HermesTheme.warning,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    state.connectionState == GatewayConnectionState.connecting
+                        ? 'Reconnecting...'
+                        : 'Disconnected -- tap here to reconnect',
+                    style: const TextStyle(
+                      color: HermesTheme.warning,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (state.connectionState != GatewayConnectionState.connecting)
+                    GestureDetector(
+                      onTap: () {
+                        if (state.gatewayUrl != null) {
+                          state.connect(state.gatewayUrl!);
+                        }
+                      },
+                      child: const Icon(
+                        Icons.refresh_rounded,
+                        color: HermesTheme.warning,
+                        size: 18,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+          // Main content
+          Expanded(
+            child: IndexedStack(
+              index: _currentTab,
+              children: screens,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
