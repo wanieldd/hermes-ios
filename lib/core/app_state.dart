@@ -211,14 +211,30 @@ class AppState extends ChangeNotifier {
   }
 
   /// Select a session and load its messages
-  Future<void> selectSession(String id) async {
+  Future<void> selectSession(String id, {SessionInfo? session}) async {
     _isLoadingMessages = true;
     notifyListeners();
+
+    // For locally-tracked sessions (created via WebSocket), use the passed data
+    if (session != null) {
+      _activeSession = session;
+      _activeMessages = [];
+      _isLoadingMessages = false;
+      notifyListeners();
+      return;
+    }
 
     try {
       _activeSession = await _apiClient!.getSession(id);
       _activeMessages = await _apiClient!.getSessionMessages(id);
-    } catch (_) {}
+    } catch (_) {
+      // Fall back to local session data if REST API fails
+      final local = _sessions.where((s) => s.id == id).firstOrNull;
+      if (local != null) {
+        _activeSession = local;
+        _activeMessages = [];
+      }
+    }
     _isLoadingMessages = false;
     notifyListeners();
   }
@@ -229,15 +245,15 @@ class AppState extends ChangeNotifier {
       final result = await _gatewayClient!.createSession(title: title);
       final sessionId = result['session_id'] as String?;
       if (sessionId != null) {
-        // Add to local session list
-        _sessions.insert(0, SessionInfo(
+        final newSession = SessionInfo(
           id: sessionId,
           title: title ?? 'New Chat',
           messageCount: 0,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
-        ));
-        await selectSession(sessionId);
+        );
+        _sessions.insert(0, newSession);
+        await selectSession(sessionId, session: newSession);
         notifyListeners();
       }
       return sessionId;
@@ -274,6 +290,14 @@ class AppState extends ChangeNotifier {
   Future<void> sendPrompt(String text) async {
     if (_activeSession == null || _gatewayClient == null) return;
 
+    // Add user message to chat
+    _activeMessages.add(Message(
+      id: 'user_${DateTime.now().millisecondsSinceEpoch}',
+      role: 'user',
+      content: text,
+      createdAt: DateTime.now(),
+    ));
+
     _isStreaming = true;
     _streamingContent = '';
     _streamingThinking = '';
@@ -299,17 +323,18 @@ class AppState extends ChangeNotifier {
 
       case GatewayEventType.messageComplete:
         _isStreaming = false;
+        // Keep the streamed content as the final message
+        if (_activeSession != null && (_streamingContent != null && _streamingContent!.isNotEmpty)) {
+          _activeMessages.add(Message(
+            id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+            role: 'assistant',
+            content: _streamingContent!,
+            thinking: _streamingThinking,
+            createdAt: DateTime.now(),
+          ));
+        }
         _streamingContent = null;
         _streamingThinking = null;
-        // Reload messages to get the full message
-        if (_activeSession != null) {
-          _apiClient!
-              .getSessionMessages(_activeSession!.id)
-              .then((msgs) {
-            _activeMessages = msgs;
-            notifyListeners();
-          });
-        }
         notifyListeners();
         break;
 

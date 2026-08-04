@@ -200,7 +200,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                               session: session,
                               isActive: state.activeSession?.id == session.id,
                               onTap: () {
-                                state.selectSession(session.id);
+                                state.selectSession(session.id, session: session);
                                 widget.onSessionSelected?.call();
                               },
                               onDelete: () => _deleteSession(session),
