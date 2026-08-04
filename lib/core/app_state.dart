@@ -124,6 +124,19 @@ class AppState extends ChangeNotifier {
       // Test REST connection
       _status = await _apiClient!.getStatus();
 
+      // Fetch session token from dashboard if not provided
+      if (_gatewayToken == null || _gatewayToken!.isEmpty) {
+        final fetchedToken = await _apiClient!.fetchSessionToken();
+        if (fetchedToken.isNotEmpty) {
+          _gatewayToken = fetchedToken;
+          // Refresh the API client with the token
+          _apiClient = ApiClient(
+            baseUrl: _gatewayUrl!,
+            token: fetchedToken,
+          );
+        }
+      }
+
       // Connect WebSocket
       await _gatewayClient!.connect(_gatewayUrl!, token: _gatewayToken);
 

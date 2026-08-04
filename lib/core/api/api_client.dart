@@ -206,6 +206,23 @@ class ApiClient {
     throw ApiException(response.statusCode, response.body);
   }
 
+  /// Fetch the session token from the dashboard HTML page
+  Future<String> fetchSessionToken() async {
+    try {
+      final uri = Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}/');
+      final response = await _client.get(uri);
+      if (response.statusCode == 200) {
+        final html = response.body;
+        final regex = RegExp(r'__HERMES_SESSION_TOKEN__="([^"]+)"');
+        final match = regex.firstMatch(html);
+        if (match != null) {
+          return match.group(1) ?? '';
+        }
+      }
+    } catch (_) {}
+    return '';
+  }
+
   void dispose() {
     _client.close();
   }
