@@ -9,15 +9,6 @@ on:
       - 'pubspec.yaml'
       - '.github/workflows/build-ipa.yml'
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build type'
-        required: true
-        default: 'debug'
-        type: choice
-        options:
-          - debug
-          - release
 
 jobs:
   build-ios:
@@ -35,27 +26,33 @@ jobs:
           flutter-version: '3.44'
           channel: 'stable'
 
-      - name: Verify Flutter
-        run: flutter --version
-
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Clean iOS build
-        run: |
-          cd ios
-          pod deintegrate 2>/dev/null || true
-          pod install --repo-update 2>/dev/null || true
-
-      - name: Build iOS IPA (unsigned)
-        run: flutter build ipa --no-codesign --debug
+      - name: Build iOS app (unsigned)
+        run: flutter build ios --no-codesign --debug
         env:
           CI: true
 
-      - name: Rename IPA for clarity
+      - name: Package IPA
         run: |
-          mkdir -p artifacts
-          cp build/ios/ipa/hermes_ios.ipa artifacts/hermes-ios-unsigned.ipa
+          # Find the built .app bundle
+          APP_PATH=$(find build/ios -name "*.app" -type d | head -1)
+          echo "Found app: $APP_PATH"
+          ls -la "$APP_PATH"
+
+          # Create the IPA structure (Payload/<AppName>.app)
+          mkdir -p artifacts/Payload
+          cp -R "$APP_PATH" artifacts/Payload/
+
+          # Zip into IPA
+          cd artifacts
+          zip -r hermes-ios-unsigned.ipa Payload
+          cd ..
+
+          # Verify
+          ls -lh artifacts/hermes-ios-unsigned.ipa
+          unzip -l artifacts/hermes-ios-unsigned.ipa | head -20
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
@@ -67,5 +64,3 @@ jobs:
       - name: Verify IPA
         run: |
           ls -lh artifacts/hermes-ios-unsigned.ipa
-          echo "IPA built successfully! Size: $(stat -f%z artifacts/hermes-ios-unsigned.ipa 2>/dev/null || echo 'unknown') bytes"
-          echo "Load this IPA into LiveContainer on your iPhone to test."
