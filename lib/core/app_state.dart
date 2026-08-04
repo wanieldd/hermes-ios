@@ -5,11 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'api/api_client.dart';
 import 'api/models.dart';
 import 'gateway/gateway_client.dart';
-import 'storage/secure_storage.dart';
+import 'storage/simple_storage.dart';
 
 /// Central app state managed via ChangeNotifier.
 class AppState extends ChangeNotifier {
-  final SecureStorage _storage = SecureStorage();
+  final SimpleStorage _storage = SimpleStorage();
 
   ApiClient? _apiClient;
   GatewayClient? _gatewayClient;
@@ -72,8 +72,9 @@ class AppState extends ChangeNotifier {
 
   /// Initialize: load saved credentials
   Future<void> init() async {
-    _gatewayUrl = await _storage.getGatewayUrl();
-    _gatewayToken = await _storage.getGatewayToken();
+    await _storage.init();
+    _gatewayUrl = await _storage.read('gateway_url');
+    _gatewayToken = await _storage.read('gateway_token');
 
     if (_gatewayUrl != null && _gatewayUrl!.isNotEmpty) {
       _initClients();
@@ -113,9 +114,9 @@ class AppState extends ChangeNotifier {
       _gatewayUrl = '${uri.scheme}://${uri.host}:${uri.port}';
       _gatewayToken = token ?? '';
 
-      await _storage.saveGatewayUrl(_gatewayUrl!);
+      await _storage.save('gateway_url', _gatewayUrl!);
       if (_gatewayToken!.isNotEmpty) {
-        await _storage.saveGatewayToken(_gatewayToken!);
+        await _storage.save('gateway_token', _gatewayToken!);
       }
 
       _initClients();

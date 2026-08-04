@@ -8,7 +8,11 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
   final appState = AppState();
-  appState.init();
+  // Initialize storage and try to load saved credentials
+  appState.init().catchError((e) {
+    // Storage init failed, app still works without saved credentials
+    debugPrint('Storage init failed (non-fatal): $e');
+  });
 
   runApp(
     ChangeNotifierProvider<AppState>.value(
