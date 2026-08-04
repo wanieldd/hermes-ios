@@ -189,6 +189,23 @@ class ApiClient {
     return json['ticket'] as String? ?? '';
   }
 
+  /// Log in with username/password
+  Future<Map<String, dynamic>> passwordLogin(String username, String password) async {
+    final uri = Uri.parse('$_apiBase/auth/password-login');
+    final response = await _client.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw ApiException(response.statusCode, response.body);
+  }
+
   void dispose() {
     _client.close();
   }

@@ -346,6 +346,39 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Log in with username/password, get session token, then connect
+  Future<bool> login(String username, String password, {String? url}) async {
+    _isConnecting = true;
+    _connectionError = null;
+    notifyListeners();
+
+    try {
+      // Use provided URL or saved one
+      final gatewayUrl = url ?? _gatewayUrl ?? 'http://localhost:9119';
+
+      // First, POST to password-login
+      final tempClient = ApiClient(baseUrl: gatewayUrl);
+      final result = await tempClient.passwordLogin(username, password);
+      tempClient.dispose();
+
+      final sessionToken = result['session_token'] as String?;
+      if (sessionToken == null || sessionToken.isEmpty) {
+        _isConnecting = false;
+        _connectionError = 'Login failed: no session token returned';
+        notifyListeners();
+        return false;
+      }
+
+      // Now connect with the session token
+      return await connect(gatewayUrl, token: sessionToken);
+    } catch (e) {
+      _isConnecting = false;
+      _connectionError = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
   @override
   void dispose() {
     _eventSubscription?.cancel();
