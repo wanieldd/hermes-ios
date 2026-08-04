@@ -1,0 +1,71 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/build-ipa.yml'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build-ios:
+    name: Build iOS IPA (unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44'
+          channel: 'stable'
+
+      - name: Verify Flutter
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Clean iOS build
+        run: |
+          cd ios
+          pod deintegrate 2>/dev/null || true
+          pod install --repo-update 2>/dev/null || true
+
+      - name: Build iOS IPA (unsigned)
+        run: flutter build ipa --no-codesign --debug
+        env:
+          CI: true
+
+      - name: Rename IPA for clarity
+        run: |
+          mkdir -p artifacts
+          cp build/ios/ipa/hermes_ios.ipa artifacts/hermes-ios-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-ios-unsigned-${{ github.sha }}
+          path: artifacts/hermes-ios-unsigned.ipa
+          retention-days: 7
+
+      - name: Verify IPA
+        run: |
+          ls -lh artifacts/hermes-ios-unsigned.ipa
+          echo "IPA built successfully! Size: $(stat -f%z artifacts/hermes-ios-unsigned.ipa 2>/dev/null || echo 'unknown') bytes"
+          echo "Load this IPA into LiveContainer on your iPhone to test."
