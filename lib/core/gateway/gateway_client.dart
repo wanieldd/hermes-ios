@@ -97,9 +97,13 @@ class GatewayClient {
     if (_intentionalClose) return;
     _reconnectTimer?.cancel();
     _reconnectAttempts++;
-    final delay = (_reconnectAttempts < 5)
-        ? const Duration(seconds: 2)
-        : const Duration(seconds: 5);
+    // Exponential backoff: 5s, 10s, 20s, 30s, 30s, ...
+    final baseDelay = const Duration(seconds: 5);
+    final maxDelay = const Duration(seconds: 30);
+    var delay = Duration(
+      milliseconds: (baseDelay.inMilliseconds * (1 << (_reconnectAttempts - 1)))
+          .clamp(0, maxDelay.inMilliseconds),
+    );
     _reconnectTimer = Timer(delay, () {
       if (_lastUrl != null) {
         connect(_lastUrl!, token: _lastToken).catchError((_) {});
