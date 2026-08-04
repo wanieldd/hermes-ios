@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'dart:io';
 
 import '../api/models.dart';
 
-/// JSON-RPC WebSocket client for the Hermes gateway.
+/// JSON-RPC WebSocket client using dart:io WebSocket directly.
 class GatewayClient {
-  WebSocketChannel? _channel;
+  WebSocket? _ws;
   StreamSubscription<dynamic>? _subscription;
   GatewayConnectionState _state = GatewayConnectionState.idle;
   int _nextId = 0;
@@ -41,26 +40,33 @@ class GatewayClient {
 
     final wsScheme = url.startsWith('https') ? 'wss' : 'ws';
     final cleanUrl = url.replaceAll(RegExp(r'/+$'), '');
-    final wsUrl = token != null && token.isNotEmpty
-        ? '$wsScheme://${Uri.parse(cleanUrl).host}:${Uri.parse(cleanUrl).port}/api/ws?token=$token'
-        : '$wsScheme://${Uri.parse(cleanUrl).host}:${Uri.parse(cleanUrl).port}/api/ws';
+    final host = Uri.parse(cleanUrl).host;
+    final port = Uri.parse(cleanUrl).port;
+    final path = token != null && token.isNotEmpty
+        ? '/api/ws?token=$token'
+        : '/api/ws';
 
     _setState(GatewayConnectionState.connecting);
 
     try {
-      // Dispose old connection if any
+      // Close old connection if any
       await _subscription?.cancel();
-      await _channel?.sink.close();
-      _channel = null;
+      _ws?.close();
+      _ws = null;
 
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      // Connect using dart:io WebSocket
+      _ws = await WebSocket.connect(
+        '$wsScheme://$host:$port$path',
+      );
 
-      _subscription = _channel!.stream.listen(
+      _subscription = _ws!.listen(
         _handleMessage,
         onError: (error) {
-          _setState(GatewayConnectionState.error);
-          _rejectAllPending(Exception('WebSocket error: $error'));
-          _scheduleReconnect();
+          if (!_intentionalClose) {
+            _setState(GatewayConnectionState.error);
+            _rejectAllPending(Exception('WebSocket error: $error'));
+            _scheduleReconnect();
+          }
         },
         onDone: () {
           if (!_intentionalClose) {
@@ -87,8 +93,8 @@ class GatewayClient {
     _reconnectAttempts = 0;
     await _subscription?.cancel();
     _subscription = null;
-    await _channel?.sink.close();
-    _channel = null;
+    await _ws?.close();
+    _ws = null;
     _setState(GatewayConnectionState.closed);
     _rejectAllPending(Exception('Disconnected'));
   }
@@ -97,14 +103,10 @@ class GatewayClient {
     if (_intentionalClose) return;
     _reconnectTimer?.cancel();
     _reconnectAttempts++;
-    // Exponential backoff: 5s, 10s, 20s, 30s, 30s, ...
-    final baseDelay = const Duration(seconds: 5);
-    final maxDelay = const Duration(seconds: 30);
-    var delay = Duration(
-      milliseconds: (baseDelay.inMilliseconds * (1 << (_reconnectAttempts - 1)))
-          .clamp(0, maxDelay.inMilliseconds),
-    );
-    _reconnectTimer = Timer(delay, () {
+    final baseMs = 5000;
+    final maxMs = 30000;
+    var delayMs = (baseMs * (1 << (_reconnectAttempts - 1))).clamp(0, maxMs);
+    _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
       if (_lastUrl != null) {
         connect(_lastUrl!, token: _lastToken).catchError((_) {});
       }
@@ -131,7 +133,7 @@ class GatewayClient {
       if (params != null) 'params': params,
     };
 
-    _channel!.sink.add(jsonEncode(frame));
+    _ws!.add(jsonEncode(frame));
 
     Timer(timeout, () {
       if (!completer.isCompleted) {
@@ -196,7 +198,7 @@ class GatewayClient {
     _intentionalClose = true;
     _reconnectTimer?.cancel();
     _subscription?.cancel();
-    _channel?.sink.close();
+    _ws?.close();
     _eventController.close();
     _stateController.close();
   }
