@@ -13,6 +13,7 @@ class AppState extends ChangeNotifier {
 
   ApiClient? _apiClient;
   GatewayClient? _gatewayClient;
+  StreamSubscription<GatewayConnectionState>? _stateSubscription;
 
   // Connection
   String? _gatewayUrl;
@@ -85,6 +86,7 @@ class AppState extends ChangeNotifier {
     _apiClient?.dispose();
     _gatewayClient?.dispose();
     _eventSubscription?.cancel();
+    _stateSubscription?.cancel();
 
     _apiClient = ApiClient(
       baseUrl: _gatewayUrl!,
@@ -94,7 +96,7 @@ class AppState extends ChangeNotifier {
     _gatewayClient = GatewayClient();
 
     _eventSubscription = _gatewayClient!.events.listen(_handleGatewayEvent);
-    _gatewayClient!.stateStream.listen((state) {
+    _stateSubscription = _gatewayClient!.stateStream.listen((state) {
       notifyListeners();
     });
   }
