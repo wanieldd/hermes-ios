@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import 'api/api_client.dart';
 import 'api/models.dart';
@@ -8,7 +9,7 @@ import 'gateway/gateway_client.dart';
 import 'storage/simple_storage.dart';
 
 /// Central app state managed via ChangeNotifier.
-class AppState extends ChangeNotifier {
+class AppState extends ChangeNotifier with WidgetsBindingObserver {
   final SimpleStorage _storage = SimpleStorage();
 
   ApiClient? _apiClient;
@@ -77,8 +78,21 @@ class AppState extends ChangeNotifier {
     _gatewayUrl = await _storage.read('gateway_url');
     _gatewayToken = await _storage.read('gateway_token');
 
+    // Register lifecycle observer for app resume reconnect
+    WidgetsBinding.instance.addObserver(this);
+
     if (_gatewayUrl != null && _gatewayUrl!.isNotEmpty) {
       _initClients();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState st) {
+    if (st == AppLifecycleState.resumed && _gatewayUrl != null) {
+      // Auto-reconnect when app comes to foreground
+      if (_gatewayClient == null || !_gatewayClient!.isConnected) {
+        connect(_gatewayUrl!, token: _gatewayToken).catchError((_) => false);
+      }
     }
   }
 
