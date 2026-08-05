@@ -55,8 +55,13 @@ class GatewayClient {
       _ws = null;
 
       // Connect using dart:io WebSocket
+      final wsHeaders = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        wsHeaders['X-Hermes-Session-Token'] = token;
+      }
       _ws = await WebSocket.connect(
         '$wsScheme://$host:$port$path',
+        headers: wsHeaders,
       );
 
       _subscription = _ws!.listen(
